@@ -4,10 +4,10 @@ class Mirror {
 
     // ---------------------------------------------------- CONSTRUCT
 
-    constructor(basename, host, upd_rate=100) {
+    constructor(basename, boolMaster, upd_rate=100) {
+        this.bm = boolMaster
         this.basename = basename
         this.upd_rate = upd_rate
-        this.bm = new BoolMaster(host)
         this.base = {}
         this.inhibiter = {}
         this.init_events()
@@ -55,9 +55,15 @@ class Mirror {
 
     // ---------------------------------------------------- INNER
 
-    get_base_point(path) {
+    get_base_point(path, def={}) {
         let base_point = this.base
         for(let prop of path) {
+            if(!base_point.hasOwnProperty[prop]) {
+                base_point[prop] = {}
+                if(prop == path[path.length-1]) {
+                    base_point[prop] = def
+                }
+            }
             base_point = base_point[prop]
         }
         return base_point
@@ -65,11 +71,11 @@ class Mirror {
 
     // ---------------------------------------------------- ACTION
 
-    get(path,prop='') {
+    get(path,prop='',def={}) {
         if(prop != '') {
             path.push(prop)
         }
-        return this.get_base_point(path)
+        return this.get_base_point(path, def)
     }
 
     set(path, prop, value) {
@@ -97,6 +103,7 @@ class Mirror {
             }
             this.trigger(event, path, prop, value)
         }
+        console.log(this.base)
     }
 
     del(path, prop) {
@@ -121,7 +128,7 @@ class Mirror {
 
     async online_read_base() {
         if(!await this.bm.key_exists(this.basename)) {
-            await this.online_write_base({base:this.base,events:{}})
+            await this.online_write_base({base:{},events:{}})
         }
         return await this.bm.read_key(this.basename)
     }
