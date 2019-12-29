@@ -1,0 +1,83 @@
+<html>
+
+    <head>
+
+        <title>Mirror example</title>
+    </head>
+
+    <body>
+
+        <button onclick="display_add()">ADD</button>
+
+        <div class='container'></div>
+
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+        <script src="Mirror.js"></script>
+
+        <script>
+        
+        'use strict'
+
+        // ------------------------------------------------ GLOBAL
+
+        var person_mirror = new Mirror()
+
+        // ------------------------------------------------ BTN
+
+        function display_add() {
+            let name = prompt('name')
+            let desc = prompt('desc')
+            let id = name
+            let person = {id,name,desc}
+            person_mirror.set([],id,person)
+        }
+
+        // ------------------------------------------------ DISP
+
+        async function display_person(person) {
+            let jq = $('<div>')
+            let name = $('<h2>')
+            let desc = $('<h3>')
+            let rm = $('<button>').html('X')
+            jq.append(name).append(desc).append(rm)
+
+            $('.container').append(jq)
+
+            rm.click(function() {
+                person_mirror.del([],person.id)
+            })
+
+            person_mirror.on_prop('set_prop',[person.id],'name',function(new_name) {
+                name.html(new_name)
+            })
+            person_mirror.on_prop('set_prop',[person.id],'desc',function(new_desc) {
+                desc.html(new_desc)
+            })
+            person_mirror.on_prop('del_prop',[],person.id,function() {
+                jq.remove()
+            })
+        }
+
+        async function display_person_list() {
+            person_mirror.on('new_prop',[],function(prop, value) {
+                display_person(value)
+            })
+        }
+
+        // ------------------------------------------------ CORE
+
+        async function satisfy_user() {
+            await display_person_list()
+        }
+
+        async function main() {
+            await satisfy_user()
+        }
+
+        main()
+
+        </script>
+
+    </body>
+
+</html>
