@@ -1,0 +1,3 @@
+[submodule "BoolMaster"]
+	path = BoolMaster
+	url = https://github.com/hugodecasta/BoolMaster
