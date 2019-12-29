@@ -4,9 +4,14 @@ class Mirror {
 
     // ---------------------------------------------------- CONSTRUCT
 
-    constructor() {
+    constructor(basename, host, upd_rate=100) {
+        this.basename = basename
+        this.upd_rate = upd_rate
+        this.bm = new BoolMaster(host)
         this.base = {}
+        this.inhibiter = {}
         this.init_events()
+        this.init_online_trigger_harvest()
     }
 
     // ---------------------------------------------------- EVENTS
@@ -26,14 +31,23 @@ class Mirror {
         this.waiters = {
             'set_prop':{
                 'init':default_init,
+                'act':function(path, prop, value) {
+                    mom.set(path, prop, value)
+                },
                 'callbacks':{}
             },
             'new_prop': {
                 'init':default_init,
+                'act':function(path, prop, value) {
+                    mom.set(path, prop, value)
+                },
                 'callbacks':{}
             },
             'del_prop': {
                 'init':no_func,
+                'act':function(path, prop) {
+                    mom.del(path, prop)
+                },
                 'callbacks':{}
             }
         }
@@ -87,9 +101,125 @@ class Mirror {
 
     del(path, prop) {
         let base_point = this.get_base_point(path)
-        let old_value = base_point[prop]
         delete base_point[prop]
-        this.trigger('del_prop',path,prop)
+        this.trigger('del_prop',path,prop,null)
+    }
+
+    reset() {
+        for(let prop in this.base) {
+            this.del([],prop)
+        }
+    }
+
+    // ---------------------------------------------------- ONLINEIFICATION
+
+    // ------------------------------------ BM
+
+    async online_write_base(base) {
+        return await this.bm.write_key(this.basename, base)
+    }
+
+    async online_read_base() {
+        if(!await this.bm.key_exists(this.basename)) {
+            await this.online_write_base({base:this.base,events:{}})
+        }
+        return await this.bm.read_key(this.basename)
+    }
+
+    async online_set_base(base) {
+        let full_base = await this.online_read_base()
+        full_base.base = base
+        await this.online_write_base(full_base)
+    }
+
+    async online_set_events(events) {
+        let full_base = await this.online_read_base()
+        full_base.events = events
+        await this.online_write_base(full_base)
+    }
+
+    async online_get_base() {
+        return (await this.online_read_base())['base']
+    }
+
+    async online_get_events() {
+        return (await this.online_read_base())['events']
+    }
+
+    // ------------------------------------ ACT
+
+    async harvest_online_triggers() {
+
+        let all_triggers = await this.online_get_events()
+        let new_triggers = {}
+        let take = false
+        for(let id in all_triggers) {
+            if(id == this.last_trigger_id || this.last_trigger_id==null) {
+                take = true
+                continue
+            }
+            if(take || this.last_trigger_id==null) {
+                new_triggers[id] = all_triggers[id]
+            }
+        }
+
+        let all_ids = Object.keys(new_triggers)
+        if(all_ids.length>0) {
+            this.last_trigger_id = all_ids[all_ids.length-1]
+        }
+        this.handle_new_online_triggers(new_triggers)
+    }
+
+    handle_new_online_triggers(triggers) {
+        for(let id in triggers) {
+            if(this.inhibiter.hasOwnProperty(id)) {
+                delete this.inhibiter[id]
+                continue
+            }
+            let trigger = triggers[id]
+            let event = trigger.event
+            let path = trigger.path
+            let prop = trigger.prop
+            let value = trigger.value
+            this.new_online_trigger(event, path, prop, value)
+        }
+    }
+
+    async init_online_trigger_harvest() {
+        let online_base = await this.online_get_base()
+        for(let prop in online_base) {
+            this.new_online_trigger('new_prop', [], prop, online_base[prop])
+        }
+        let events = await this.online_get_events()
+        this.last_trigger_id = null
+        let all_ids = Object.keys(events)
+        if(all_ids.length>0) {
+            this.last_trigger_id = all_ids[all_ids.length-1]
+        }
+        this.can_send_online = true
+        let tthis = this
+        setInterval(function() {
+            tthis.harvest_online_triggers()
+        },this.upd_rate)
+    }
+
+    async trigger_online(event, path, prop, value) {
+        if(!this.can_send_online) {
+            return
+        }
+        await this.online_set_base(this.base)
+        let id = Math.random()+''+Date.now()
+        this.inhibiter[id] = true
+        let event_obj = {event, path, prop, value}
+        let events = await this.online_get_events()
+        events[id] = event_obj
+        await this.online_set_events(events)
+    }
+
+    new_online_trigger(event, path, prop, value) {
+        this.can_send_online = false
+        this.waiters[event].act(path, prop, value)
+        this.can_send_online = true
     }
 
     // ---------------------------------------------------- EVT HANDLE
@@ -101,6 +231,7 @@ class Mirror {
         for(let cb of this.waiters[event].callbacks[path]) {
             cb(prop,value)
         }
+        this.trigger_online(event, path, prop, value)
     }
 
     on(event, path, callback) {
