@@ -2,16 +2,20 @@
 
     <head>
 
+        <meta charset="UTF-8">
+
         <title>Mirror example</title>
     </head>
 
     <body>
 
+        <button onclick="reset()">RESET</button>
         <button onclick="display_add()">ADD</button>
 
         <div class='container'></div>
 
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+        <script src="BoolMaster/boolMaster.js"></script>
         <script src="Mirror.js"></script>
 
         <script>
@@ -20,7 +24,7 @@
 
         // ------------------------------------------------ GLOBAL
 
-        var person_mirror = new Mirror()
+        var person_mirror = new Mirror('person','BoolMaster/api.php')
 
         // ------------------------------------------------ BTN
 
@@ -30,6 +34,10 @@
             let id = name
             let person = {id,name,desc}
             person_mirror.set([],id,person)
+        }
+
+        function reset() {
+            person_mirror.reset()
         }
 
         // ------------------------------------------------ DISP
