@@ -21,9 +21,13 @@ class Mirror {
         return connector
     }
 
-    async create_base(key) {
+    async can_connect(key) {
+        return await this.bm.key_exists(key)
+    }
+
+    async create_base(key, data={}) {
         if(!await this.bm.key_exists(key)) {
-            await this.bm.write_key(key,{})
+            await this.bm.write_key(key,data)
             await this.connect(key)
         }
     }
@@ -144,6 +148,10 @@ class MirrorConnector {
             base_point = base_point[sub_prop]
         }
         return base_point
+    }
+
+    get_base() {
+        return this.data
     }
 
     get(path, prop, def=null) {
