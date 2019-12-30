@@ -4,260 +4,226 @@ class Mirror {
 
     // ---------------------------------------------------- CONSTRUCT
 
-    constructor(basename, boolMaster, upd_rate=100) {
+    constructor(boolMaster) {
         this.bm = boolMaster
-        this.basename = basename
-        this.upd_rate = upd_rate
-        this.base = {}
-        this.inhibiter = {}
-        this.init_events()
-        this.init_online_trigger_harvest()
+        this.connectors = {}
     }
 
-    // ---------------------------------------------------- EVENTS
-
-    init_events() {
-        let mom = this
-
-        function default_init(path, callback) {
-            let base_point = mom.get_base_point(path)
-            for(let prop in base_point) {
-                callback(prop, base_point[prop])
+    async connect(key) {
+        if(this.connectors.hasOwnProperty(key)) {
+            if(this.connectors[key].alive) {
+                return this.connectors[key]
             }
         }
+        let connector = new MirrorConnector(this.bm, key)
+        await connector.init()
+        this.connectors[key] = connector
+        return connector
+    }
 
-        function no_func(){}
-
-        this.waiters = {
-            'set_prop':{
-                'init':default_init,
-                'act':function(path, prop, value) {
-                    mom.set(path, prop, value)
-                },
-                'callbacks':{}
-            },
-            'new_prop': {
-                'init':default_init,
-                'act':function(path, prop, value) {
-                    mom.set(path, prop, value)
-                },
-                'callbacks':{}
-            },
-            'del_prop': {
-                'init':no_func,
-                'act':function(path, prop) {
-                    mom.del(path, prop)
-                },
-                'callbacks':{}
-            }
+    async create_base(key) {
+        if(!await this.bm.key_exists(key)) {
+            await this.bm.write_key(key,{})
+            await this.connect(key)
         }
     }
 
-    // ---------------------------------------------------- INNER
+}
 
-    get_base_point(path, def={}) {
-        let base_point = this.base
-        for(let prop of path) {
-            if(!base_point.hasOwnProperty[prop]) {
-                base_point[prop] = {}
-                if(prop == path[path.length-1]) {
-                    base_point[prop] = def
+class MirrorConnector {
+
+    // --------------------------------------
+
+    constructor(boolMaster, key) {
+
+        this.bm = boolMaster
+        this.key = key
+
+        this.callback_inhibitor = {}
+        this.waiters = []
+
+        this.last_data = {}
+        this.data = {}
+    }
+
+    // --------------------------------------
+
+    async init() {
+        this.alive = true
+        let tthis = this
+        this.int = setInterval(function() {
+            tthis.update()
+        },1000)
+        await this.update()
+    }
+
+    kill_connector() {
+        this.alive = false
+        clearInterval(this.int)
+        for(let cb of this.waiters) {
+            cb('del_base',[],'',null)
+        }
+        this.waiters = []
+    }
+
+    delete() {
+        this.data = null
+        this.kill_connector()
+        this.bm.key_remove(this.key)
+    }
+
+    // --------------------------------------
+
+    diff_events(old_data, new_data, path=[]) {
+
+        function event(event,path,prop,value) {
+            return {event,path,prop,value}
+        }
+
+        let events = []
+
+        if(old_data == null && typeof(new_data) == typeof({})) {
+            old_data = {}
+        }
+
+        for(let prop in new_data) {
+            let old_prop = null
+            if(!old_data.hasOwnProperty(prop)) {
+                events.push(event('add',path,prop,new_data[prop]))
+            } else {
+                old_prop = old_data[prop]
+            }
+            if(typeof(new_data[prop]) == typeof({})) {
+                let sub_events = this.diff_events(old_prop,new_data[prop],path.concat(prop))
+                events = events.concat(sub_events)
+            } else {
+                if(old_data[prop] != new_data[prop]) {
+                    events.push(event('set',path,prop,new_data[prop]))
                 }
             }
-            base_point = base_point[prop]
+        }
+
+        if(new_data == null && typeof(old_data) == typeof({})) {
+            new_data = {}
+        }
+
+        for(let prop in old_data) {
+            if(!new_data.hasOwnProperty(prop)) {
+                events.push(event('del',path,prop,null))
+            }
+        }
+        return events
+    }
+
+    async update() {
+        if(JSON.stringify(this.last_data) == JSON.stringify(this.data)) {
+            if(!await this.bm.key_exists(this.key)) {
+                this.kill_connector()
+                return
+            }
+            this.data = await this.bm.read_key(this.key)
+        }
+        let events = this.diff_events(this.last_data,this.data)
+        this.last_data = JSON.parse(JSON.stringify(this.data))
+        for(let event of events) {
+            for(let cb of this.waiters) {
+                cb(event.event,event.path,event.prop,event.value)
+            }
+        }
+        await this.bm.write_key(this.key,this.data)
+    }
+
+    // --------------------------------------
+
+    get_base_point(path) {
+        let base_point = this.data
+        for(let sub_prop of path) {
+            if(!base_point.hasOwnProperty(sub_prop)) {
+                base_point[sub_prop] = {}
+            }
+            base_point = base_point[sub_prop]
         }
         return base_point
     }
 
-    // ---------------------------------------------------- ACTION
-
-    get(path,prop='',def={}) {
-        if(prop != '') {
-            path.push(prop)
+    get(path, prop, def=null) {
+        let base_point = this.get_base_point(path)
+        if(!base_point.hasOwnProperty(prop)) {
+            base_point[prop] = def
         }
-        return this.get_base_point(path, def)
+        return base_point[prop]
     }
 
     set(path, prop, value) {
-
         let base_point = this.get_base_point(path)
-        let was_new = !base_point.hasOwnProperty(prop)
-        let was_same = JSON.stringify(base_point[prop]) == JSON.stringify(value)
+        base_point[prop] = value
+        this.update()
+    }
 
-        if(typeof(value) == typeof({})) {
-            if(was_new) {
-                base_point[prop] = {}
-            }
-            for(let sub_prop in value) {
-                let sub_path = JSON.parse(JSON.stringify(path))
-                sub_path.push(prop)
-                this.set(sub_path, sub_prop, value[sub_prop])
-            }
-        }
-
-        if(!was_same) {
-            base_point[prop] = value
-            let event = 'set_prop'
-            if(was_new) {
-                event = 'new_prop'
-            }
-            this.trigger(event, path, prop, value)
-        }
-        console.log(this.base)
+    set_base(value) {
+        this.data = value
+        this.update()
     }
 
     del(path, prop) {
         let base_point = this.get_base_point(path)
         delete base_point[prop]
-        this.trigger('del_prop',path,prop,null)
+        this.update()
     }
 
-    reset() {
-        for(let prop in this.base) {
-            this.del([],prop)
-        }
+    // --------------------------------------
+
+    reset_waiters() {
+        this.waiters = []
     }
 
-    // ---------------------------------------------------- ONLINEIFICATION
-
-    // ------------------------------------ BM
-
-    async online_write_base(base) {
-        return await this.bm.write_key(this.basename, base)
-    }
-
-    async online_read_base() {
-        if(!await this.bm.key_exists(this.basename)) {
-            await this.online_write_base({base:{},events:{}})
-        }
-        return await this.bm.read_key(this.basename)
-    }
-
-    async online_set_base(base) {
-        let full_base = await this.online_read_base()
-        full_base.base = base
-        await this.online_write_base(full_base)
-    }
-
-    async online_set_events(events) {
-        let full_base = await this.online_read_base()
-        full_base.events = events
-        await this.online_write_base(full_base)
-    }
-
-    async online_get_base() {
-        return (await this.online_read_base())['base']
-    }
-
-    async online_get_events() {
-        return (await this.online_read_base())['events']
-    }
-
-    // ------------------------------------ ACT
-
-    async harvest_online_triggers() {
-
-        let all_triggers = await this.online_get_events()
-        let new_triggers = {}
-        let take = false
-        for(let id in all_triggers) {
-            if(id == this.last_trigger_id || this.last_trigger_id==null) {
-                take = true
-                continue
-            }
-            if(take || this.last_trigger_id==null) {
-                new_triggers[id] = all_triggers[id]
+    on(callback) {
+        
+        this.waiters.push(callback)
+        
+        function trig_obj(obj,path=[]) {
+            for(let prop in obj) {
+                callback('add',path,prop,obj[prop])
+                callback('set',path,prop,obj[prop])
+                if(typeof(obj[prop]) == typeof({})) {
+                    trig_obj(obj[prop],path.concat(prop))
+                }
             }
         }
 
-        let all_ids = Object.keys(new_triggers)
-        if(all_ids.length>0) {
-            this.last_trigger_id = all_ids[all_ids.length-1]
+        trig_obj(this.data)
+
+        if(!this.alive) {
+            this.kill_connector()
         }
-        this.handle_new_online_triggers(new_triggers)
     }
 
-    handle_new_online_triggers(triggers) {
-        for(let id in triggers) {
-            if(this.inhibiter.hasOwnProperty(id)) {
-                delete this.inhibiter[id]
-                continue
+    on_event(event, callback) {
+        function my_cb(ret_event, ret_path, ret_prop, ret_value) {
+            if(event == ret_event) {
+                callback(ret_path, ret_prop, ret_value)
             }
-            let trigger = triggers[id]
-            let event = trigger.event
-            let path = trigger.path
-            let prop = trigger.prop
-            let value = trigger.value
-            this.new_online_trigger(event, path, prop, value)
         }
+        this.on(my_cb)
     }
 
-    async init_online_trigger_harvest() {
-        let online_base = await this.online_get_base()
-        for(let prop in online_base) {
-            this.new_online_trigger('new_prop', [], prop, online_base[prop])
+    on_path(event, path, callback) {
+        function my_cb( ret_path, ret_prop, ret_value) {
+            if(JSON.stringify(path) == JSON.stringify(ret_path)) {
+                callback(ret_prop, ret_value)
+            }
         }
-        let events = await this.online_get_events()
-        this.last_trigger_id = null
-        let all_ids = Object.keys(events)
-        if(all_ids.length>0) {
-            this.last_trigger_id = all_ids[all_ids.length-1]
-        }
-        this.can_send_online = true
-        let tthis = this
-        setInterval(function() {
-            tthis.harvest_online_triggers()
-        },this.upd_rate)
-    }
-
-    async trigger_online(event, path, prop, value) {
-        if(!this.can_send_online) {
-            return
-        }
-        await this.online_set_base(this.base)
-        let id = Math.random()+''+Date.now()
-        this.inhibiter[id] = true
-        let event_obj = {event, path, prop, value}
-        let events = await this.online_get_events()
-        events[id] = event_obj
-        await this.online_set_events(events)
-    }
-
-    new_online_trigger(event, path, prop, value) {
-        this.can_send_online = false
-        this.waiters[event].act(path, prop, value)
-        this.can_send_online = true
-    }
-
-    // ---------------------------------------------------- EVT HANDLE
-
-    trigger(event, path, prop, value) {
-        if(!this.waiters[event].callbacks.hasOwnProperty(path)) {
-            return
-        }
-        for(let cb of this.waiters[event].callbacks[path]) {
-            cb(prop,value)
-        }
-        this.trigger_online(event, path, prop, value)
-    }
-
-    on(event, path, callback) {
-
-        this.waiters[event].init(path, callback)
-
-        if(!this.waiters[event].callbacks.hasOwnProperty(path)) {
-            this.waiters[event].callbacks[path] = []
-        }
-        this.waiters[event].callbacks[path].push(callback)
+        this.on_event(event, my_cb)
     }
 
     on_prop(event, path, prop, callback) {
-        let inner_cb = function(gprop, value) {
-            if(gprop == prop) {
-                callback(value)
+        function my_cb(ret_prop, ret_value) {
+            if(prop == ret_prop) {
+                callback(ret_value)
             }
         }
-        this.on(event,path,inner_cb)
+        this.on_path(event, path, my_cb)
     }
+
 
 }
