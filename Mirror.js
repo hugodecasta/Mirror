@@ -26,7 +26,7 @@ class Mirror {
     }
 
     async create_base(key, data={}) {
-        if(!await this.bm.key_exists(key)) {
+        if(!await this.bm.key_exists(key) || (await this.bm.read_key(key)) == null) {
             await this.bm.write_key(key,data)
             await this.connect(key)
         }
@@ -125,7 +125,13 @@ class MirrorConnector {
                 this.kill_connector()
                 return
             }
-            this.data = await this.bm.read_key(this.key)
+            let loaded_data = await this.bm.read_key(this.key)
+            if(loaded_data == null) {
+                console.log(this.key,'file corrupted, replacing with existing base')
+                await this.bm.write_key(this.key,this.data)
+            } else {
+                this.data = loaded_data
+            }
         }
         let events = this.diff_events(this.last_data,this.data)
         this.last_data = JSON.parse(JSON.stringify(this.data))
@@ -139,10 +145,13 @@ class MirrorConnector {
 
     // --------------------------------------
 
-    get_base_point(path) {
+    get_base_point(path,build_ways=true) {
         let base_point = this.data
         for(let sub_prop of path) {
             if(!base_point.hasOwnProperty(sub_prop)) {
+                if(!build_ways) {
+                    return null
+                }
                 base_point[sub_prop] = {}
             }
             base_point = base_point[sub_prop]
@@ -155,9 +164,9 @@ class MirrorConnector {
     }
 
     get(path, prop, def=null) {
-        let base_point = this.get_base_point(path)
-        if(!base_point.hasOwnProperty(prop)) {
-            base_point[prop] = def
+        let base_point = this.get_base_point(path, false)
+        if(base_point == null || !base_point.hasOwnProperty(prop)) {
+            return def
         }
         return base_point[prop]
     }
