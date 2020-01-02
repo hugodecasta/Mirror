@@ -7,6 +7,7 @@ class Mirror {
     constructor(boolMaster) {
         this.bm = boolMaster
         this.connectors = {}
+        this.exists = {}
     }
 
     async connect(key) {
@@ -26,7 +27,11 @@ class Mirror {
     }
 
     async create_base(key, data={}) {
+        if(this.exists.hasOwnProperty(key)) {
+            return
+        }
         if(!await this.bm.key_exists(key) || (await this.bm.read_key(key)) == null) {
+            this.exists[key] = true
             await this.bm.write_key(key,data)
             await this.connect(key)
         }
@@ -134,13 +139,17 @@ class MirrorConnector {
             }
         }
         let events = this.diff_events(this.last_data,this.data)
-        this.last_data = JSON.parse(JSON.stringify(this.data))
         for(let event of events) {
-            for(let cb of this.waiters) {
-                cb(event.event,event.path,event.prop,event.value)
-            }
+            this.trigger(event.event,event.path,event.prop,event.value)
         }
+        this.last_data = JSON.parse(JSON.stringify(this.data))
         await this.bm.write_key(this.key,this.data)
+    }
+
+    trigger(event,path,prop,value) {
+        for(let cb of this.waiters) {
+            cb(event,path,prop,value)
+        }
     }
 
     // --------------------------------------
