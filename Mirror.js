@@ -172,6 +172,10 @@ class MirrorConnector {
         return this.data
     }
 
+    get_direct(prop, def=null) {
+        return this.get([],prop,def)
+    }
+
     get(path, prop, def=null) {
         let base_point = this.get_base_point(path, false)
         if(base_point == null || !base_point.hasOwnProperty(prop)) {
