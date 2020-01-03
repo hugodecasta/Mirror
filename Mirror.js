@@ -184,6 +184,10 @@ class MirrorConnector {
         return base_point[prop]
     }
 
+    set_direct(prop, value) {
+        this.set([],prop,value)
+    }
+
     set(path, prop, value) {
         let base_point = this.get_base_point(path)
         base_point[prop] = value
@@ -193,6 +197,10 @@ class MirrorConnector {
     set_base(value) {
         this.data = value
         this.update()
+    }
+
+    del_direct(prop) {
+        this.del([],prop)
     }
 
     del(path, prop) {
