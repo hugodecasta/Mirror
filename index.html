@@ -15,34 +15,39 @@
         <div class='container'></div>
 
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
-        <script src="BoolMaster/boolMaster.js"></script>
-        <script src="Mirror.js"></script>
+        <script type="module" src="Mirror.js"></script>
 
-        <script>
-        
-        'use strict'
+        <script type="module">
 
         // ------------------------------------------------ GLOBAL
 
-        var person_mirror = new Mirror('person','BoolMaster/api.php')
+        import Mirror from './Mirror.js'
+
+        var mirror = new Mirror('./')
+        var connector = null
+
+        window.mirror = mirror
 
         // ------------------------------------------------ BTN
 
-        function display_add() {
+        window.display_add = function() {
             let name = prompt('name')
             let desc = prompt('desc')
             let id = name
             let person = {id,name,desc}
-            person_mirror.set([],id,person)
+            connector.set_direct(id,person)
         }
 
-        function reset() {
-            person_mirror.reset()
+        window.reset = function() {
+            connector.delete()
         }
+
+        // ------------------------------------------------ MIRROR
 
         // ------------------------------------------------ DISP
 
         async function display_person(person) {
+
             let jq = $('<div>')
             let name = $('<h2>')
             let desc = $('<h3>')
@@ -52,22 +57,22 @@
             $('.container').append(jq)
 
             rm.click(function() {
-                person_mirror.del([],person.id)
+                connector.del([],person.id)
             })
 
-            person_mirror.on_prop('set_prop',[person.id],'name',function(new_name) {
+            connector.on_prop('set',[person.id],'name',function(new_name) {
                 name.html(new_name)
             })
-            person_mirror.on_prop('set_prop',[person.id],'desc',function(new_desc) {
+            connector.on_prop('set',[person.id],'desc',function(new_desc) {
                 desc.html(new_desc)
             })
-            person_mirror.on_prop('del_prop',[],person.id,function() {
+            connector.on_prop('del',[],person.id,function() {
                 jq.remove()
             })
         }
 
         async function display_person_list() {
-            person_mirror.on('new_prop',[],function(prop, value) {
+            connector.on_path('add',[],function(prop, value) {
                 display_person(value)
             })
         }
@@ -75,6 +80,7 @@
         // ------------------------------------------------ CORE
 
         async function satisfy_user() {
+            connector = await mirror.connect('person')
             await display_person_list()
         }
 

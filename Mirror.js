@@ -1,11 +1,13 @@
 'use strict'
 
-class Mirror {
+import BoolMaster from './BoolMaster/boolMaster.js'
+
+export default class Mirror {
 
     // ---------------------------------------------------- CONSTRUCT
 
-    constructor(boolMaster) {
-        this.bm = boolMaster
+    constructor(mirror_dir) {
+        this.bm = new BoolMaster(mirror_dir+'BoolMaster/api.php')
         this.connectors = {}
         this.exists = {}
     }
@@ -268,6 +270,5 @@ class MirrorConnector {
         }
         this.on_path(event, path, my_cb)
     }
-
 
 }
