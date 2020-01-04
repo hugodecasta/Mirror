@@ -60,6 +60,7 @@ class MirrorConnector {
     async init() {
         this.alive = true
         let tthis = this
+        this.lut = 0 // last update time
         this.int = setInterval(function() {
             tthis.update()
         },1000)
@@ -125,13 +126,18 @@ class MirrorConnector {
     }
 
     async update() {
+        this.lut = Date.now()
         if(JSON.stringify(this.last_data) == JSON.stringify(this.data)) {
+            let rem_time = this.lut
             if(!await this.bm.key_exists(this.key)) {
                 this.kill_connector()
                 return
             }
             let loaded_data = await this.bm.read_key(this.key)
-            if(loaded_data == null) {
+            if(rem_time < this.lut) {
+                console.log('too late to load online, reseting to existing base')
+            }
+            else if(loaded_data == null) {
                 console.log(this.key,'file corrupted, replacing with existing base')
                 await this.bm.write_key(this.key,this.data)
             } else {
